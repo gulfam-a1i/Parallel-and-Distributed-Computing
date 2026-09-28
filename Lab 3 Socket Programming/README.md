@@ -94,4 +94,3 @@ thread.start()
 ```
 
 ---
-![Screenshot 5](<Screenshot 2026-09-27 231047.png>)
