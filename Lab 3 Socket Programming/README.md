@@ -94,13 +94,4 @@ thread.start()
 ```
 
 ---
-
-## 🖼️ Screenshots
-
-Server and client terminal output showing multiple clients connected and exchanging messages:
-
-![Screenshot 1](<Screenshot 2026-09-27 230838-1.png>)
-![Screenshot 2](<Screenshot 2026-09-27 230838.png>)
-![Screenshot 3](<Screenshot 2026-09-27 230948.png>)
-![Screenshot 4](<Screenshot 2026-09-27 231040.png>)
 ![Screenshot 5](<Screenshot 2026-09-27 231047.png>)
