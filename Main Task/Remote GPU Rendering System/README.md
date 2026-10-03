@@ -24,6 +24,7 @@ reconnect-and-resume if the connection drops mid-job.
 
 ## Contents
 
+- [Problem statement](#problem-statement)
 - [Architecture](#architecture)
 - [How each task is covered](#how-each-task-is-covered)
 - [Project structure](#project-structure)
@@ -34,8 +35,35 @@ reconnect-and-resume if the connection drops mid-job.
 - [Progress streaming and fault tolerance](#progress-streaming-and-fault-tolerance)
 - [Performance benchmark](#performance-benchmark)
 - [Screenshots and demo](#screenshots-and-demo)
+- [Submission checklist](#submission-checklist)
 - [Tests](#tests)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Problem statement
+
+The scenario from the assignment: a developer works on a laptop with only an
+integrated GPU or a low-end card with about 500 MB of VRAM. Heavy jobs such as
+high-resolution transcoding, rendering or deep-learning work either crawl,
+throttle the laptop, or fail with out-of-memory errors. Buying new hardware is
+not an option, but there is a desktop with a dedicated NVIDIA GPU (4 GB+) on
+the same network.
+
+The fix is **task offloading**. The laptop packages the job (input file and
+settings), sends it over a fast local link (a direct CAT6 cable or Wi-Fi) to
+the desktop, which runs it on dedicated hardware engines (NVENC for video,
+CUDA for tensor maths) and streams progress and the result back. The laptop
+stays responsive and only deals with the interface and the file transfer.
+
+Offloading only helps if what you save in compute time is more than what you
+spend moving data. Measuring that trade-off is the point of the benchmark
+section.
+
+| Node | Hardware this was designed for | Role |
+|---|---|---|
+| Client laptop | integrated / low-end GPU (~500 MB VRAM), CPU-only encoding | GUI, job configuration, upload/download |
+| Worker node | dedicated NVIDIA GPU, 4 GB+ VRAM, NVENC | headless daemon, task queue, GPU execution |
 
 ---
 
@@ -80,7 +108,7 @@ The full message sequence is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 | Task | Marks | Where | What was done |
 |---|---|---|---|
 | 1. Networking & handshake | 20 | `common/protocol.py`, `client/connection.py`, [docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md) | Static IP guide (Windows/Linux, cable and Wi-Fi), length-prefixed JSON framing, HMAC challenge-response auth, protocol version check, ping latency/jitter test, availability check (`accepting`, encoder present, queue not full) before any job is submitted, specific error messages for refused / timed out / unreachable |
-| 2. Remote GPU execution daemon | 25 | `server/` | Background worker with a thread per client and a fixed pool of GPU slot threads, NVENC encoding (`h264_nvenc`, `hevc_nvenc`) with CUDA decode, NVENC verified by a test encode at startup, CUDA matmul job through PyTorch, input validation (no client text reaches the FFmpeg command line), token auth, upload size limit, log file rotation, graceful shutdown on SIGINT/SIGTERM, systemd unit + Windows launcher |
+| 2. Remote GPU execution daemon | 25 | `server/`, `common/ffmpeg.py` | Configuration parsing and validation against whitelists (codec, resolution, preset, bitrate range, container, matrix size); background worker with a thread per client and a fixed pool of GPU slot threads, NVENC encoding (`h264_nvenc`, `hevc_nvenc`) with CUDA decode, NVENC verified by a test encode at startup, CUDA matmul job through PyTorch, input validation (no client text reaches the FFmpeg command line), token auth, upload size limit, log file rotation, graceful shutdown on SIGINT/SIGTERM, systemd unit + Windows launcher |
 | 3. Client GUI | 25 | `client/gui.py` | CustomTkinter dark UI: file picker with media info, output folder, codec / resolution / bitrate / preset, server IP + port + token, test connection, live progress bar and stat tiles, worker status panel, colour-coded log terminal with save/clear, cancel button, settings remembered between runs |
 | 4. Progress & robustness | 15 | `common/protocol.py`, `server/jobs.py`, `client/connection.py` | Async PROGRESS / LOG / HEARTBEAT streaming, socket timeouts + TCP keep-alive, SHA-256 on every transfer in both directions, `.part` files so incomplete transfers are never mistaken for complete ones, automatic retry of corrupted uploads/downloads, jobs survive client disconnects and the client reconnects and re-attaches |
 | 5. Benchmarking & report | 15 | `benchmark/` | Automated local-vs-remote runs over several resolutions and durations, phase-by-phase timing, speedup (end-to-end and GPU-only), network overhead, link throughput, CPU/GPU/NVENC/VRAM/power utilisation, generated report with tables and charts |
@@ -128,7 +156,7 @@ Remote GPU Rendering System/
 
 **Worker (GPU machine)**
 
-- NVIDIA GPU with NVENC (GeForce GTX 10-series or newer, any RTX card) and a recent driver
+- NVIDIA GPU with NVENC and at least 4 GB VRAM (GeForce GTX 10-series or newer, any RTX card), recent driver
 - FFmpeg built with NVENC on `PATH`
   - Windows: the "full" build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) includes it
   - Linux: most distro packages include it; check with `ffmpeg -hide_banner -encoders | grep nvenc`
@@ -320,6 +348,22 @@ Captured on the test setup described in the benchmark report. Files are in
 | `nvidia-smi` showing NVENC load during a render | `nvidia_smi.png` |
 | Demo recording: full job from file pick to output, including progress streaming | `demo.gif` |
 | Disconnect test: cable pulled mid-render, client reconnects and finishes | `resume_demo.gif` |
+
+---
+
+## Submission checklist
+
+How the repository maps to section 5 of the assignment:
+
+| Requirement | Where |
+|---|---|
+| Complete source code, public repository | this folder (repository is public) |
+| Separate `client/` and `server/` directories | [`client/`](client/), [`server/`](server/) (shared protocol code in [`common/`](common/)) |
+| Step-by-step setup for client and server | [Worker setup](#2-worker-setup-and-starting-the-daemon), [Client setup](#3-client-setup-and-launching-the-gui) |
+| Network configuration guide (static IP, Ethernet/Wi-Fi) | [docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md) |
+| How to start the daemon and launch the GUI | sections 2 and 3 above, `start_worker.bat`, `start_client.bat` |
+| Screenshots and GIFs of live progress and output | [Screenshots and demo](#screenshots-and-demo) |
+| Formal benchmark and analysis report | [benchmark/results/REPORT.md](benchmark/results/REPORT.md), method in [benchmark/README.md](benchmark/README.md) |
 
 ---
 

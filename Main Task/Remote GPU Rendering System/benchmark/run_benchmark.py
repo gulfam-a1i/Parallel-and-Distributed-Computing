@@ -252,17 +252,114 @@ def make_charts(rows, out_dir):
     return charts
 
 
+def _case(r):
+    return "%s / %d s" % (r["resolution"], r["duration_s"])
+
+
+def analysis(rows, has_local):
+    """Sections 5 and 6, written from the measured numbers only."""
+    L = ["## 5. Analysis\n"]
+    tot_remote = sum(r["remote_total_s"] for r in rows)
+    tot_render = sum(r["render_s"] for r in rows)
+    over = tot_remote - tot_render
+    by_size = sorted(rows, key=lambda r: r["input_mb"])
+    small, large = by_size[0], by_size[-1]
+
+    L.append("**Network transfer overhead.** Across all cases the remote path took %.1f s, of which %.1f s "
+             "was GPU rendering and %.1f s (%.0f%%) was hashing, transfer and queueing. The overhead share "
+             "was %.0f%% for the smallest input (%s, %.1f MB) and %.0f%% for the largest (%s, %.1f MB)."
+             % (tot_remote, tot_render, over, over / tot_remote * 100,
+                small["overhead_pct"], _case(small), small["input_mb"],
+                large["overhead_pct"], _case(large), large["input_mb"]))
+    links = [r["throughput_mbps"] for r in rows if r.get("throughput_mbps")]
+    if links:
+        L[-1] += (" Effective link throughput averaged %.0f Mbit/s (range %.0f-%.0f)."
+                  % (statistics.mean(links), min(links), max(links)))
+    L.append("")
+
+    if has_local:
+        tot_local = sum(r["local_s"] for r in rows)
+        overall = tot_local / tot_remote
+        geo = statistics.geometric_mean([r["speedup"] for r in rows])
+        best = max(rows, key=lambda r: r["speedup"])
+        worst = min(rows, key=lambda r: r["speedup"])
+        L.append("**Speedup.** Overall speedup (sum of local times / sum of remote times) was **%.2fx** "
+                 "(%.1f s local vs %.1f s remote), and the geometric mean of the per-case speedups was %.2fx. "
+                 "The best case was %s at %.2fx and the worst was %s at %.2fx."
+                 % (overall, tot_local, tot_remote, geo, _case(best), best["speedup"],
+                    _case(worst), worst["speedup"]))
+        trend = "increased" if large["speedup"] > small["speedup"] else "did not increase"
+        L[-1] += (" Going from the smallest to the largest input, speedup %s (%.2fx to %.2fx)."
+                  % (trend, small["speedup"], large["speedup"]))
+        L.append("")
+
+        lost = [1 - r["speedup"] / r["speedup_gpu_only"] for r in rows if r.get("speedup_gpu_only")]
+        if lost:
+            L.append("**Cost of the network.** If transfers were free, the GPU-only speedup would have been "
+                     "%.2fx-%.2fx. On average, network overhead cost %.0f%% of that ideal speedup, which is the "
+                     "gap between the two speedup columns in the results table."
+                     % (min(r["speedup_gpu_only"] for r in rows), max(r["speedup_gpu_only"] for r in rows),
+                        statistics.mean(lost) * 100))
+            L.append("")
+
+        slower = [r for r in rows if r["speedup"] < 1]
+        L.append("**Break-even.** Offloading wins when T_upload + T_render + T_download < T_local. ")
+        if slower:
+            L[-1] += ("It lost in %d of %d cases (%s): there, the network and transfer overhead was larger "
+                      "than the render time saved." % (len(slower), len(rows), ", ".join(_case(r) for r in slower)))
+        else:
+            L[-1] += "It won in all %d cases tested." % len(rows)
+        L.append("")
+
+    util = [r for r in rows if r.get("worker_gpu_util_avg") is not None or r.get("local_cpu_avg") is not None]
+    if util:
+        parts = []
+        cpu = [r["local_cpu_avg"] for r in rows if r.get("local_cpu_avg") is not None]
+        if cpu:
+            parts.append("During local renders the client CPU averaged %.0f%%" % statistics.mean(cpu))
+        gpu = [r["worker_gpu_util_avg"] for r in rows if r.get("worker_gpu_util_avg") is not None]
+        if gpu:
+            parts.append("the worker GPU averaged %.0f%%" % statistics.mean(gpu))
+        nv = [r["worker_nvenc_util_avg"] for r in rows if r.get("worker_nvenc_util_avg") is not None]
+        if nv:
+            parts.append("its NVENC engine %.0f%%" % statistics.mean(nv))
+        wcpu = [r["worker_cpu_util_avg"] for r in rows if r.get("worker_cpu_util_avg") is not None]
+        if wcpu:
+            parts.append("the worker CPU %.0f%%" % statistics.mean(wcpu))
+        L.append("**Resource utilisation.** " + "; ".join(parts) + ". While a job is offloaded the "
+                 "client only sends and receives data, so it stays free for other work.\n")
+
+    L.append("## 6. Conclusion\n")
+    if has_local:
+        verdict = "faster" if overall > 1 else "not faster"
+        L.append("On this setup, offloading to the remote GPU was %s overall (%.2fx). The benefit depends on "
+                 "the ratio of compute to data. Inputs that are expensive to encode relative to their size gain "
+                 "the most, and small inputs are dominated by transfer time. A faster link (gigabit cable "
+                 "instead of Wi-Fi) shifts the break-even point towards smaller files."
+                 % (verdict, overall))
+    else:
+        L.append("Local runs were skipped, so only the remote path was characterised (see overhead above).")
+    return L
+
+
 def write_report(rows, meta, charts, path):
     has_local = all(r.get("local_s") for r in rows)
     w = meta["worker"]
     gpu = w.get("gpu") or {}
     lat = meta["latency"]
     L = []
-    L.append("# Benchmark results\n")
-    L.append("Generated by `benchmark/run_benchmark.py` on %s. All numbers below are measured, "
-             "median of %d run(s) per case.\n" % (meta["date"], meta["repeats"]))
+    L.append("# Performance Evaluation: Local Rendering vs. Remote GPU Offloading\n")
+    L.append("CSC-334 Parallel and Distributed Computing, Main Task, Gulfam Ali (FA23-BSE-030)\n")
+    L.append("Generated by `benchmark/run_benchmark.py` on %s. Every number in this report was measured "
+             "on the setup below; each value is the median of %d run(s).\n" % (meta["date"], meta["repeats"]))
 
-    L.append("## Test environment\n")
+    L.append("## 1. Objective\n")
+    L.append("Measure whether offloading video transcoding from a resource-constrained client to a remote "
+             "NVIDIA GPU worker is faster end to end, and by how much. The study separates the time spent "
+             "moving data over the network from the time spent computing, across several input "
+             "resolutions and file sizes. It also records CPU/GPU utilisation on both machines.\n")
+
+    L.append("## 2. Test environment\n")
     L.append("| | Client (local baseline) | Worker (remote) |")
     L.append("|---|---|---|")
     c = meta["client"]
@@ -281,7 +378,18 @@ def write_report(rows, meta, charts, path):
     L.append("Job settings: codec `%s`, preset `%s`, bitrate per resolution from `common/ffmpeg.py` "
              "(`DEFAULT_BITRATE`), AAC audio 160 kbps.\n" % (meta["codec"], meta["preset"]))
 
-    L.append("## Results\n")
+    L.append("## 3. Method\n")
+    L.append("Each case is a synthetic clip (test pattern + temporal grain, high-bitrate source) rendered "
+             "twice with identical FFmpeg settings: once on the client with the CPU encoder, once "
+             "offloaded to the worker's NVENC encoder. The remote time covers the full user-visible path: "
+             "hashing, upload, queueing, rendering, download and checksum verification. Full methodology and "
+             "formulas: `benchmark/README.md`.\n")
+    L.append("- Speedup S = T_local / T_remote (end to end)")
+    L.append("- GPU-only speedup S_gpu = T_local / T_render (speedup if the network were free)")
+    L.append("- Overhead O = T_remote - T_render, reported as a share of T_remote")
+    L.append("- Link throughput = (input + output megabits) / (T_upload + T_download)\n")
+
+    L.append("## 4. Results\n")
     hdr = ["Case", "Input MB"]
     if has_local:
         hdr += ["Local s"]
@@ -310,7 +418,7 @@ def write_report(rows, meta, charts, path):
                  "worker_gpu_util_avg": "GPU % avg", "worker_gpu_util_peak": "GPU % peak",
                  "worker_nvenc_util_avg": "NVENC % avg", "worker_gpu_mem_mb_peak": "VRAM MB peak",
                  "worker_gpu_power_w_avg": "GPU W avg"}
-        L.append("### Resource utilisation\n")
+        L.append("### 4.1 Resource utilisation\n")
         L.append("| Case | " + " | ".join(names[k] for k in util_keys) + " |")
         L.append("|" + "---|" * (len(util_keys) + 1))
         for r in rows:
@@ -321,30 +429,7 @@ def write_report(rows, meta, charts, path):
     for p in charts:
         L.append("![%s](%s)\n" % (os.path.splitext(os.path.basename(p))[0].replace("_", " "), os.path.basename(p)))
 
-    L.append("## Summary\n")
-    tot_remote = sum(r["remote_total_s"] for r in rows)
-    tot_render = sum(r["render_s"] for r in rows)
-    L.append("- Total remote time %.1f s, of which %.1f s was rendering and %.1f s (%.0f%%) was transfer, "
-             "hashing and queueing." % (tot_remote, tot_render, tot_remote - tot_render,
-                                         (tot_remote - tot_render) / tot_remote * 100))
-    if has_local:
-        tot_local = sum(r["local_s"] for r in rows)
-        geo = statistics.geometric_mean([r["speedup"] for r in rows])
-        best = max(rows, key=lambda r: r["speedup"])
-        worst = min(rows, key=lambda r: r["speedup"])
-        L.append("- Overall speedup (sum of local times / sum of remote times): **%.2fx** "
-                 "(%.1f s local vs %.1f s remote)." % (tot_local / tot_remote, tot_local, tot_remote))
-        L.append("- Geometric mean of per-case speedups: %.2fx." % geo)
-        L.append("- Best case: %s / %d s at %.2fx. Worst case: %s / %d s at %.2fx." % (
-            best["resolution"], best["duration_s"], best["speedup"],
-            worst["resolution"], worst["duration_s"], worst["speedup"]))
-        slower = [r for r in rows if r["speedup"] < 1]
-        if slower:
-            L.append("- Offloading was slower than rendering locally for: %s. In these cases the network "
-                     "and transfer overhead outweighed the render time saved." % ", ".join(
-                         "%s/%ds" % (r["resolution"], r["duration_s"]) for r in slower))
-        else:
-            L.append("- Offloading was faster than local rendering in every case tested.")
+    L.extend(analysis(rows, has_local))
     L.append("")
     L.append("Raw data: `%s`, `%s`." % (os.path.basename(meta["csv"]), os.path.basename(meta["json"])))
     with open(path, "w", encoding="utf-8") as f:
