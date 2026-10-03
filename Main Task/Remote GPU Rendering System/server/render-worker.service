@@ -1,0 +1,25 @@
+# systemd unit for running the worker as a background service on Linux.
+#
+#   sudo cp server/render-worker.service /etc/systemd/system/
+#   sudo systemctl edit render-worker      # set User, WorkingDirectory and RENDER_TOKEN
+#   sudo systemctl enable --now render-worker
+#   journalctl -u render-worker -f         # live log
+
+[Unit]
+Description=Remote GPU render worker (CSC-334)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=render
+WorkingDirectory=/opt/remote-gpu-rendering
+Environment=RENDER_TOKEN=change-me
+ExecStart=/usr/bin/python3 -m server --host 0.0.0.0 --port 5050
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
