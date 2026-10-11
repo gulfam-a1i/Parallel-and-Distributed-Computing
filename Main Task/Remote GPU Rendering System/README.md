@@ -143,8 +143,8 @@ Remote GPU Rendering System/
 │   └── results/            generated REPORT.md, CSV, JSON, charts
 ├── docs/
 │   ├── NETWORK_SETUP.md    static IP, cable / Wi-Fi, firewall
-│   ├── PROTOCOL.md         wire protocol and failure handling
-│   └── screenshots/
+│   └── PROTOCOL.md         wire protocol and failure handling
+├── Screenshots/            client and remote worker screenshots
 ├── tests/                  unit + end-to-end tests
 ├── requirements-client.txt
 ├── requirements-server.txt
@@ -381,19 +381,59 @@ Results: **[benchmark/results/REPORT.md](benchmark/results/REPORT.md)**.
 
 ## Screenshots and demo
 
-Captured on the test setup described in the benchmark report. Files are in
-[`docs/screenshots/`](docs/screenshots/).
+These captures show the client and the remote target (worker) during testing.
+The demonstrated worker uses Intel Iris Xe Graphics with Intel Quick Sync.
+Original images are available in [Screenshots/](Screenshots/).
 
-| What it shows | File |
-|---|---|
-| Worker console at startup (GPU + hardware encoder detected) | `worker_start.png` |
-| `ping` across the direct link and the client's connection test | `network_check.png` |
-| GUI connected to the worker (status panel, latency) | `gui_connected.png` |
-| Render in progress, live progress + log | `gui_rendering.png` |
-| Finished job summary | `gui_done.png` |
-| Task Manager → GPU on the worker showing **Video Encode** load during a render | `gpu_load.png` |
-| Demo recording: full job from file pick to output, including progress streaming | `demo.gif` |
-| Disconnect test: Wi-Fi turned off (or cable pulled) mid-render, client reconnects and finishes | `resume_demo.gif` |
+### Target machine: hardware and worker logs
+
+**Worker GPU.** Task Manager identifies the target machine's Intel Iris Xe Graphics and shared GPU memory. This capture shows the GPU at idle.
+
+![Worker GPU](Screenshots/Screenshot%202026-10-11%20130219.png)
+
+**First remote job on the worker.** The console records authentication, verified upload, queueing, execution, result transfer, and the client's output-checksum confirmation.
+
+![First remote job on the worker](Screenshots/Screenshot%202026-10-11%20140528.png)
+
+**Second remote job on the worker.** A subsequent job completes and its result is returned, verified by the client, and cleaned up on the worker.
+
+![Second remote job on the worker](Screenshots/Screenshot%202026-10-11%20140632.png)
+
+### Client connection checks
+
+**Unreachable worker.** The client reports a connection timeout when the configured worker address does not respond.
+
+![Unreachable worker](Screenshots/Screenshot%202026-10-12%20015408.png)
+
+**Rejected access token.** The client displays the worker's authentication failure before a successful connection is established.
+
+![Rejected access token](Screenshots/Screenshot%202026-10-12%20020002.png)
+
+**Successful connection.** The worker status panel reports the GPU, available encoders, Intel Quick Sync mode, queue state, and measured latency.
+
+![Successful connection](Screenshots/Screenshot%202026-10-12%20020348.png)
+
+**Render settings.** The connected client shows H.264/AVC, 1080p, an 8,000 kbps bitrate, the balanced preset, and the Start render control.
+
+![Render settings](Screenshots/Screenshot%202026-10-12%20020358.png)
+
+### Remote rendering and verified results
+
+**First completed render.** The client reaches Finished at 100%, displaying 132 FPS, 5.48x encoding speed, and a log of the verified output download.
+
+![First completed render](Screenshots/Screenshot%202026-10-12%20020528.png)
+
+**Live rendering status.** A second job shows Rendering on worker with 205 FPS and 6.80x encoding speed, alongside the streamed worker log.
+
+![Live rendering status](Screenshots/Screenshot%202026-10-12%20020619.png)
+
+**Second completed render.** The client switches to Finished and logs output verification and the saved result.
+
+![Second completed render](Screenshots/Screenshot%202026-10-12%20020626.png)
+
+The FPS and speed values above are the UI readings from these individual jobs;
+see the [performance benchmark](#performance-benchmark) for benchmark methodology
+and results.
 
 ---
 
@@ -408,7 +448,7 @@ How the repository maps to section 5 of the assignment:
 | Step-by-step setup for client and server | [Worker setup](#2-worker-setup-and-starting-the-daemon), [Client setup](#3-client-setup-and-launching-the-gui) |
 | Network configuration guide (static IP, Ethernet/Wi-Fi) | [docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md) |
 | How to start the daemon and launch the GUI | sections 2 and 3 above, `start_worker.bat`, `start_client.bat` |
-| Screenshots and GIFs of live progress and output | [Screenshots and demo](#screenshots-and-demo) |
+| Screenshots of client, worker, live progress and output | [Screenshots and demo](#screenshots-and-demo) |
 | Formal benchmark and analysis report | [benchmark/results/REPORT.md](benchmark/results/REPORT.md), method in [benchmark/README.md](benchmark/README.md) |
 
 ---
