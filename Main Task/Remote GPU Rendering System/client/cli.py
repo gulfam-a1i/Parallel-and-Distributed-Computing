@@ -77,8 +77,9 @@ def main(argv=None):
     try:
         info = client.connect()
         gpu = info.get("gpu") or {}
-        print("connected to '%s'  GPU: %s  encoders: %s" % (
-            info["worker"], gpu.get("name", "none"), ", ".join(info["capabilities"]["encoders"].values()) or "none"))
+        print("connected to '%s'  GPU: %s  accelerator: %s  encoders: %s" % (
+            info["worker"], gpu.get("name", "none"), info["capabilities"].get("accelerator", "?"),
+            ", ".join(info["capabilities"]["encoders"].values()) or "none"))
         lat = client.ping()
         print("latency  min %.2f / avg %.2f / max %.2f ms  jitter %.2f ms  lost %d/%d" % (
             lat["min_ms"], lat["avg_ms"], lat["max_ms"], lat["jitter_ms"], lat["lost"], lat["count"]))
