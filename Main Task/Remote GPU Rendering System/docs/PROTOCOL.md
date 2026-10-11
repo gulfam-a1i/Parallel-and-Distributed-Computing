@@ -47,9 +47,8 @@ client                                   worker
   does, so a captured handshake can't be replayed.
 - After a wrong token the worker waits 1 s before replying, to slow down guessing.
 - `WELCOME.capabilities` lists the job kinds and the encoder used for each codec
-  (`h264 → h264_nvenc`, or `h264_qsv` on Intel) and the `accelerator` name. The worker
-  test-encodes one frame at startup to confirm the hardware encoder really works,
-  because the encoder being listed in FFmpeg doesn't prove it.
+  (`h264 → h264_nvenc`). The worker test-encodes one frame at startup to confirm
+  NVENC really works, because the encoder being listed in FFmpeg doesn't prove it.
 - The client refuses to submit if `accepting` is false (queue full), if the job
   kind isn't supported, or if there is no encoder for the requested codec.
 

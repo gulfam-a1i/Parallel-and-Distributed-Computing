@@ -11,8 +11,7 @@
 A laptop with a weak CPU hands its heavy work to a GPU machine on the same
 network. You pick a video in the desktop client, choose resolution, bitrate
 and preset, and press Start. The file goes to the worker over a direct LAN
-link, the worker encodes it on its hardware video encoder (NVIDIA NVENC, or
-Intel Quick Sync / AMD AMF when there is no NVIDIA card), and progress streams back live:
+link, the worker encodes it with NVIDIA NVENC, and progress streams back live:
 percentage, FPS, speed and ETA. The rendered file comes back checksum-verified.
 The worker can also run a CUDA matrix-multiply job through PyTorch for
 general GPU compute.
@@ -29,7 +28,6 @@ reconnect-and-resume if the connection drops mid-job.
 - [Architecture](#architecture)
 - [How each task is covered](#how-each-task-is-covered)
 - [Project structure](#project-structure)
-- [Hardware acceleration and test setup](#hardware-acceleration-and-test-setup)
 - [Requirements](#requirements)
 - [1. Network setup](#1-network-setup)
 - [2. Worker setup and starting the daemon](#2-worker-setup-and-starting-the-daemon)
@@ -82,7 +80,7 @@ flowchart TB
     subgraph W["Worker node (NVIDIA GPU)"]
         L["TCP listener<br/>one session thread per client"]
         Q["Job queue<br/>N GPU slot threads"]
-        E["Execution engine<br/>FFmpeg NVENC / Quick Sync / AMF<br/>PyTorch CUDA"]
+        E["Execution engine<br/>FFmpeg h264_nvenc / hevc_nvenc<br/>PyTorch CUDA"]
         M["Metrics sampler<br/>nvidia-smi + psutil"]
         L --> Q --> E
         E -.-> M
@@ -98,7 +96,7 @@ Request path, step by step:
 1. **Handshake.** `HELLO → CHALLENGE → AUTH (HMAC) → WELCOME`. The worker reports its GPU, its working encoders and whether it is accepting jobs. The client then sends a few `PING`s to measure round-trip latency and jitter.
 2. **Submit.** The client sends the job settings plus the file's size and SHA-256. The worker checks the settings against fixed whitelists before accepting a single byte.
 3. **Upload.** Raw bytes stream over the socket. The worker hashes them as they arrive and only accepts the file if the digest matches.
-4. **Queue and render.** The job waits for a free GPU slot, then FFmpeg runs on the hardware encoder. Its `-progress` output is parsed into percentage/FPS/ETA and pushed to the client about four times a second.
+4. **Queue and render.** The job waits for a free GPU slot, then FFmpeg runs with NVENC. Its `-progress` output is parsed into percentage/FPS/ETA and pushed to the client about four times a second.
 5. **Return.** The client fetches the output, verifies its SHA-256 and confirms. The worker then deletes the job files.
 
 The full message sequence is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -110,7 +108,7 @@ The full message sequence is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 | Task | Marks | Where | What was done |
 |---|---|---|---|
 | 1. Networking & handshake | 20 | `common/protocol.py`, `client/connection.py`, [docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md) | Static IP guide (Windows/Linux, cable and Wi-Fi), length-prefixed JSON framing, HMAC challenge-response auth, protocol version check, ping latency/jitter test, availability check (`accepting`, encoder present, queue not full) before any job is submitted, specific error messages for refused / timed out / unreachable |
-| 2. Remote GPU execution daemon | 25 | `server/`, `common/ffmpeg.py` | Configuration parsing and validation against whitelists (codec, resolution, preset, bitrate range, container, matrix size); background worker with a thread per client and a fixed pool of GPU slot threads, hardware encoding with NVENC (`h264_nvenc`, `hevc_nvenc`, CUDA decode), with Intel Quick Sync / AMD AMF used automatically on non-NVIDIA workers, each encoder verified by a test encode at startup, CUDA matmul job through PyTorch, input validation (no client text reaches the FFmpeg command line), token auth, upload size limit, log file rotation, graceful shutdown on SIGINT/SIGTERM, systemd unit + Windows launcher |
+| 2. Remote GPU execution daemon | 25 | `server/`, `common/ffmpeg.py` | Configuration parsing and validation against whitelists (codec, resolution, preset, bitrate range, container, matrix size); background worker with a thread per client and a fixed pool of GPU slot threads, NVENC encoding (`h264_nvenc`, `hevc_nvenc`) with CUDA decode, NVENC verified by a test encode at startup, CUDA matmul job through PyTorch, input validation (no client text reaches the FFmpeg command line), token auth, upload size limit, log file rotation, graceful shutdown on SIGINT/SIGTERM, systemd unit + Windows launcher |
 | 3. Client GUI | 25 | `client/gui.py` | CustomTkinter dark UI: file picker with media info, output folder, codec / resolution / bitrate / preset, server IP + port + token, test connection, live progress bar and stat tiles, worker status panel, colour-coded log terminal with save/clear, cancel button, settings remembered between runs |
 | 4. Progress & robustness | 15 | `common/protocol.py`, `server/jobs.py`, `client/connection.py` | Async PROGRESS / LOG / HEARTBEAT streaming, socket timeouts + TCP keep-alive, SHA-256 on every transfer in both directions, `.part` files so incomplete transfers are never mistaken for complete ones, automatic retry of corrupted uploads/downloads, jobs survive client disconnects and the client reconnects and re-attaches |
 | 5. Benchmarking & report | 15 | `benchmark/` | Automated local-vs-remote runs over several resolutions and durations, phase-by-phase timing, speedup (end-to-end and GPU-only), network overhead, link throughput, CPU/GPU/NVENC/VRAM/power utilisation, generated report with tables and charts |
@@ -130,7 +128,7 @@ Remote GPU Rendering System/
 ├── server/
 │   ├── worker.py           daemon: listener, sessions, auth, message handlers
 │   ├── jobs.py             job queue, GPU slots, heartbeats, cleanup
-│   ├── engine.py           hardware transcode (NVENC/QSV/AMF) + CUDA matmul
+│   ├── engine.py           NVENC transcode + CUDA matmul execution
 │   ├── hardware.py         GPU detection and utilisation sampling
 │   ├── render-worker.service   systemd unit
 │   └── __main__.py         `python -m server` starts the worker
@@ -154,50 +152,14 @@ Remote GPU Rendering System/
 
 ---
 
-## Hardware acceleration and test setup
-
-The brief targets NVIDIA hardware (NVENC for video, CUDA for tensors). The
-worker supports that, and it also works on machines without an NVIDIA card.
-At startup it test-encodes one frame with each hardware encoder, in this
-order, and uses the first one that works:
-
-| Priority | Hardware | FFmpeg encoders | Hardware decode |
-|---|---|---|---|
-| 1 | NVIDIA NVENC | `h264_nvenc`, `hevc_nvenc` | CUDA (`-hwaccel cuda`) |
-| 2 | Intel Quick Sync | `h264_qsv`, `hevc_qsv` | D3D11VA / VAAPI (`-hwaccel auto`) |
-| 3 | AMD AMF | `h264_amf`, `hevc_amf` | D3D11VA (`-hwaccel auto`) |
-| 4 | CPU (only with `--allow-cpu-fallback`) | `libx264`, `libx265` | none |
-
-`--encoder nvenc|qsv|amf|cpu` forces one, which is useful for comparing the
-hardware encoder against the CPU on the same machine. GPU utilisation is read
-from `nvidia-smi` on NVIDIA and from the Windows GPU performance counters on
-Intel/AMD, the same numbers Task Manager shows. That includes the dedicated
-**Video Encode** engine.
-
-**Test setup used for the screenshots and benchmark in this repository.**
-Neither of the laptops available to us has an NVIDIA GPU, so the worker ran on
-Intel Quick Sync. The NVENC path is implemented the same way and is selected
-automatically on any machine with an NVIDIA card.
-
-| Role | Machine | GPU | Video encoder used |
-|---|---|---|---|
-| Client | laptop (Gulfam) | Intel HD Graphics 620 | CPU `libx264` (local baseline) |
-| Worker | laptop (Rao Ali) | Intel Iris Xe Graphics | Intel Quick Sync `h264_qsv` |
-| Network | same Wi-Fi router, `192.168.100.0/24` | | |
-
----
-
 ## Requirements
 
 **Worker (GPU machine)**
 
-- A GPU with a hardware video encoder and a recent driver:
-  - **NVIDIA** with NVENC, 4 GB+ VRAM (GeForce GTX 10-series or newer, any RTX card), which is what the brief targets, or
-  - **Intel** integrated graphics with Quick Sync (HD/UHD 6xx and newer, Iris Xe), or
-  - **AMD** Radeon with AMF
-- FFmpeg with hardware encoders on `PATH`
+- NVIDIA GPU with NVENC and at least 4 GB VRAM (GeForce GTX 10-series or newer, any RTX card), recent driver
+- FFmpeg built with NVENC on `PATH`
   - Windows: the "full" build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) includes it
-  - Linux: most distro packages include it; check with `ffmpeg -hide_banner -encoders | grep -E "nvenc|qsv|amf"`
+  - Linux: most distro packages include it; check with `ffmpeg -hide_banner -encoders | grep nvenc`
 - Python 3.9+
 - Optional: PyTorch with CUDA, for the compute job
 
@@ -249,11 +211,11 @@ For the CUDA compute job, install PyTorch with CUDA as well
 ([pytorch.org](https://pytorch.org/get-started/locally/) gives the exact
 command for your setup).
 
-Check that the GPU and its encoder are visible:
+Check that the GPU and NVENC are visible:
 
 ```bash
 python -m server.hardware
-ffmpeg -hide_banner -encoders | findstr "nvenc qsv amf"      # Linux: grep -E "nvenc|qsv|amf"
+ffmpeg -hide_banner -encoders | findstr nvenc      # Linux: grep nvenc
 ```
 
 **Start the worker** (the token is a shared password; use the same one in the client):
@@ -262,7 +224,7 @@ ffmpeg -hide_banner -encoders | findstr "nvenc qsv amf"      # Linux: grep -E "n
 python -m server --token my-secret-token
 ```
 
-The startup log shows which hardware encoder passed the test encode. Example output from an NVIDIA machine (on an Intel laptop it shows `Intel Quick Sync` and `h264_qsv`):
+The startup log shows which encoders passed the NVENC test. Example output (GPU name and driver will match your machine):
 
 ```
 2026-10-04 14:02:11 INFO    engine encoders: {'h264': 'h264_nvenc', 'hevc': 'hevc_nvenc'}
@@ -281,7 +243,6 @@ Useful options (`python -m server --help` lists all of them):
 | `--max-upload-mb` | 4096 | largest accepted input |
 | `--retention` | 1800 | seconds a finished output waits to be collected |
 | `--workdir` | `~/.render_worker` | job files and `worker.log` |
-| `--encoder` | auto | `auto` tries NVENC → Quick Sync → AMF; or force `nvenc`, `qsv`, `amf`, `cpu` |
 | `--no-hw-decode` | off | decode on CPU, encode on GPU |
 | `--allow-cpu-fallback` | off | use libx264 when there is no NVIDIA GPU (testing only) |
 
@@ -324,9 +285,9 @@ Using it:
 
 1. Enter the worker IP (`192.168.1.1`), port and token, and press **Test connection**. The status panel shows the GPU, the encoders, queue state and measured latency. The pill in the header turns green when the worker has working NVENC.
 2. Under **Job**, browse for an input video. Its resolution, codec, duration and size appear under the path.
-3. Pick codec, output resolution, bitrate and preset (p1 fastest … p7 best quality; mapped to each encoder's own presets). The bitrate is filled in automatically when you change resolution.
+3. Pick codec, output resolution, bitrate and NVENC preset (p1 fastest … p7 best quality). The bitrate is filled in automatically when you change resolution.
 4. Press **Start render**. The progress card goes through *Uploading → Waiting in queue → Rendering on GPU → Downloading result → Finished*, with live FPS, speed, ETA and transfer rate. Worker-side FFmpeg messages appear in the log in blue.
-5. When it finishes, a summary shows time per phase, network overhead and GPU/hardware-encoder utilisation. **Open output folder** takes you to the file.
+5. When it finishes, a summary shows time per phase, network overhead and GPU/NVENC utilisation. **Open output folder** takes you to the file.
 
 Switch the job type to **CUDA compute** to run the matrix-multiply job
 instead. Progress then shows live GFLOP/s.
@@ -367,7 +328,7 @@ python -m benchmark.run_benchmark --server 192.168.1.1 --token my-secret-token -
 
 The script runs every resolution/duration combination on the laptop's CPU and
 then through the worker. It times each phase (hash, upload, queue, render,
-download), samples CPU, GPU and hardware-encoder utilisation, and writes:
+download), samples CPU/GPU/NVENC utilisation, and writes:
 
 - `benchmark/results/REPORT.md`: environment, results table, utilisation table, charts and summary
 - `benchmark/results/benchmark_<date>.csv` / `.json`: raw numbers
@@ -386,12 +347,12 @@ Captured on the test setup described in the benchmark report. Files are in
 
 | What it shows | File |
 |---|---|
-| Worker console at startup (GPU + hardware encoder detected) | `worker_start.png` |
+| Worker console at startup (GPU + NVENC detected) | `worker_start.png` |
 | `ping` across the direct link and the client's connection test | `network_check.png` |
 | GUI connected to the worker (status panel, latency) | `gui_connected.png` |
 | Render in progress, live progress + log | `gui_rendering.png` |
 | Finished job summary | `gui_done.png` |
-| Task Manager → GPU on the worker showing **Video Encode** load during a render | `gpu_load.png` |
+| `nvidia-smi` showing NVENC load during a render | `nvidia_smi.png` |
 | Demo recording: full job from file pick to output, including progress streaming | `demo.gif` |
 | Disconnect test: Wi-Fi turned off (or cable pulled) mid-render, client reconnects and finishes | `resume_demo.gif` |
 
@@ -433,8 +394,8 @@ The end-to-end tests start a real worker on localhost with
 | Client: *refused the connection* | worker not running or on a different port |
 | Client: *no answer within 5 s* | firewall on the worker is blocking TCP 5050, or wrong IP |
 | Client: *worker rejected the access token* | token differs between worker and client |
-| Worker log: `encoders: none` | FFmpeg has no hardware encoder for this GPU, or the GPU driver is too old for that FFmpeg build. Update the driver, or start with `--allow-cpu-fallback` to test the pipeline |
-| Status panel says *CPU fallback* | as above: no hardware encoder passed the startup test encode |
+| Worker log: `encoders: none` | FFmpeg has no NVENC, or the NVIDIA driver is too old for that FFmpeg build. Update the driver, or start with `--allow-cpu-fallback` to test the pipeline |
+| Status panel says *CPU fallback* | as above: NVENC failed the startup test encode |
 | CUDA compute job rejected | PyTorch not installed or installed without CUDA (`python -c "import torch; print(torch.cuda.is_available())"`) |
 | `No module named tkinter` (Linux) | `sudo apt install python3-tk` |
 | Upload very slow | expected on Wi-Fi; stay close to the hotspot, or use a cable. The benchmark records this as network overhead |

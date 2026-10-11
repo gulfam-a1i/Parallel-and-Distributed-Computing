@@ -30,7 +30,7 @@ python -m benchmark.run_benchmark --server 192.168.1.1 --token <token> \
 | `--repeats` | runs per case, the median is reported |
 | `--output same\|720p\|...` | keep input resolution (default) or downscale everything to one size |
 | `--codec h264\|hevc` | codec for both sides |
-| `--preset p1..p7` | encoder preset; each encoder (NVENC, Quick Sync, AMF, x264) gets its closest equivalent |
+| `--preset p1..p7` | NVENC preset; local x264 uses the closest equivalent |
 | `--local-encoder` | override the local encoder (default `libx264` / `libx265`) |
 | `--skip-local` | only time the remote path |
 | `--network` | label for the link used, written into the report |
@@ -49,9 +49,8 @@ realistic.
 
 **Same job on both sides.** Local and remote use the same command builder
 (`common/ffmpeg.py`): same scaler, same target bitrate, same VBV buffer, same
-AAC audio. Only the encoder changes: `libx264` on the client, and the worker's
-hardware encoder (`h264_nvenc` on NVIDIA, `h264_qsv` on Intel, `h264_amf` on
-AMD). Preset `pN` is mapped to each encoder's preset of similar
+AAC audio. Only the encoder changes: `libx264` on the client, `h264_nvenc` on
+the worker. NVENC preset `pN` is paired with the x264 preset of similar
 speed/quality (`p4 ↔ faster`, see `PRESETS`).
 
 **What is timed.**
@@ -75,7 +74,7 @@ speed/quality (`p4 ↔ faster`, see `PRESETS`).
 - Overall speedup = Σ T<sub>local</sub> / Σ T<sub>remote</sub> over all cases, plus the geometric mean of per-case speedups.
 
 **Resource utilisation.** During each remote job the worker samples
-`nvidia-smi` (NVIDIA) or the Windows GPU Engine counters (Intel/AMD): 3D load, Video Encode engine load and GPU memory, plus power/temperature on NVIDIA. It also samples `psutil`
+`nvidia-smi` every 0.5 s (GPU %, NVENC %, VRAM, power, temperature) and `psutil`
 (CPU %, RAM). The client samples its own CPU during local renders. Averages and
 peaks go into the report.
 

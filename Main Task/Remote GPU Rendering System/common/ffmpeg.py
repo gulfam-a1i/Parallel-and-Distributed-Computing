@@ -26,21 +26,10 @@ RESOLUTIONS = {            # label -> output height (None = keep source)
     "480p": 480,
 }
 
-CODECS = {                 # label -> (nvidia encoder, cpu encoder)
+CODECS = {                 # label -> (gpu encoder, cpu encoder)
     "h264": ("h264_nvenc", "libx264"),
     "hevc": ("hevc_nvenc", "libx265"),
 }
-
-# Hardware encoder families, in the order the worker tries them. NVENC is the
-# target of the assignment; Intel Quick Sync and AMD AMF are used when the
-# worker has no NVIDIA card, so the system still offloads to dedicated video
-# hardware instead of the CPU.
-HW_FAMILIES = {
-    "nvenc": {"name": "NVIDIA NVENC", "h264": "h264_nvenc", "hevc": "hevc_nvenc"},
-    "qsv":   {"name": "Intel Quick Sync", "h264": "h264_qsv", "hevc": "hevc_qsv"},
-    "amf":   {"name": "AMD AMF", "h264": "h264_amf", "hevc": "hevc_amf"},
-}
-HW_ORDER = ("nvenc", "qsv", "amf")
 
 # NVENC presets p1 (fastest) .. p7 (best quality). The CPU encoders get the
 # closest x264/x265 preset so local vs. remote runs are roughly comparable.
@@ -53,10 +42,6 @@ PRESETS = {
     "p6": "medium",
     "p7": "slow",
 }
-QSV_PRESETS = {"p1": "veryfast", "p2": "faster", "p3": "fast", "p4": "medium",
-               "p5": "slow", "p6": "slower", "p7": "veryslow"}
-AMF_QUALITY = {"p1": "speed", "p2": "speed", "p3": "balanced", "p4": "balanced",
-               "p5": "balanced", "p6": "quality", "p7": "quality"}
 
 CONTAINERS = ("mp4", "mkv")
 INPUT_EXTENSIONS = (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".ts")
@@ -128,28 +113,18 @@ def available_encoders(ffmpeg="ffmpeg"):
     return names
 
 
-def encoder_family(encoder):
-    for fam in HW_ORDER:
-        if encoder.endswith("_" + fam):
-            return fam
-    return "cpu"
-
-
-def hw_encoder_works(encoder, ffmpeg="ffmpeg"):
+def nvenc_works(encoder="h264_nvenc", ffmpeg="ffmpeg"):
     """
-    Being listed in `-encoders` only means FFmpeg was built with that encoder.
-    Encode one tiny frame to prove the driver and the hardware accept it.
+    Being listed in `-encoders` only means FFmpeg was built with NVENC.
+    Encode one tiny frame to prove the driver and GPU actually accept it.
     """
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
-           "-i", "color=c=black:s=320x240:d=0.1", "-frames:v", "1",
-           "-pix_fmt", "nv12", "-c:v", encoder, "-f", "null", "-"]
+           "-i", "color=c=black:s=256x256:d=0.1", "-frames:v", "1",
+           "-c:v", encoder, "-f", "null", "-"]
     try:
         return subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
-
-
-nvenc_works = hw_encoder_works          # old name, kept for compatibility
 
 
 def probe(path, ffprobe="ffprobe"):
@@ -186,12 +161,9 @@ def build_command(cfg, src, dst, encoder, ffmpeg="ffmpeg", hw_decode=False):
     `cfg` must already have gone through validate_job().
     """
     kbps = cfg["bitrate_kbps"]
-    family = encoder_family(encoder)
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "warning"]
     if hw_decode:
-        # NVIDIA: decode with CUDA. Intel/AMD: let FFmpeg pick D3D11VA/DXVA2/VAAPI.
-        # Either way FFmpeg falls back to software decoding if the input isn't supported.
-        cmd += ["-hwaccel", "cuda" if family == "nvenc" else "auto"]
+        cmd += ["-hwaccel", "cuda"]          # decode on the GPU, falls back to CPU if unsupported
     cmd += ["-i", src]
 
     height = RESOLUTIONS[cfg["resolution"]]
@@ -199,18 +171,12 @@ def build_command(cfg, src, dst, encoder, ffmpeg="ffmpeg", hw_decode=False):
         cmd += ["-vf", "scale=-2:%d:flags=bicubic" % height]
 
     cmd += ["-c:v", encoder]
-    if family == "nvenc":
+    if encoder.endswith("_nvenc"):
         cmd += ["-preset", cfg["preset"], "-tune", "hq", "-rc", "vbr"]
-    elif family == "qsv":
-        cmd += ["-preset", QSV_PRESETS[cfg["preset"]]]
-    elif family == "amf":
-        cmd += ["-quality", AMF_QUALITY[cfg["preset"]], "-rc", "vbr_peak"]
     else:
         cmd += ["-preset", PRESETS[cfg["preset"]]]
     cmd += ["-b:v", "%dk" % kbps, "-maxrate", "%dk" % int(kbps * 1.5), "-bufsize", "%dk" % (kbps * 2)]
-    # Quick Sync and AMF only take NV12 input; the others are given standard yuv420p.
-    cmd += ["-pix_fmt", "nv12" if family in ("qsv", "amf") else "yuv420p"]
-    cmd += ["-c:a", "aac", "-b:a", "160k"]
+    cmd += ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k"]
     if cfg["container"] == "mp4":
         cmd += ["-movflags", "+faststart"]
     cmd += ["-progress", "pipe:1", "-nostats", dst]

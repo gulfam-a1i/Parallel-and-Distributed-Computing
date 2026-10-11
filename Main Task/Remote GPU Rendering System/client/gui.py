@@ -44,7 +44,7 @@ STAGE_TEXT = {
     "connecting": "Connecting to worker",
     "uploading": "Uploading input",
     "queued": "Waiting in queue",
-    "rendering": "Rendering on worker",
+    "rendering": "Rendering on GPU",
     "downloading": "Downloading result",
     "done": "Finished",
     "failed": "Failed",
@@ -531,16 +531,14 @@ class App(ctk.CTk):
     def _show_worker(self, info, lat, handshake_ms, quiet):
         gpu = info.get("gpu") or {}
         caps = info.get("capabilities", {})
-        mode = ("hardware - %s" % caps.get("accelerator", "GPU")) if caps.get("gpu_encode") \
-            else "CPU fallback - no hardware encoder on worker"
+        mode = "GPU (NVENC)" if caps.get("gpu_encode") else "CPU fallback - no NVENC on worker"
         q = info.get("queue", {})
         lines = [
             "worker     %s   (%s)" % (info.get("worker"), info.get("system", {}).get("os", "")),
-            "gpu        %s" % (("%s, driver %s" % (gpu["name"], gpu["driver"])
-                                + (", %d MB" % gpu["memory_mb"] if gpu.get("memory_mb") else ""))
+            "gpu        %s" % ("%s, driver %s, %d MB" % (gpu["name"], gpu["driver"], gpu["memory_mb"])
                                if gpu else "none detected"),
             "encoders   %s" % (", ".join("%s->%s" % kv for kv in caps.get("encoders", {}).items()) or "none"),
-            "compute    %s" % (caps.get("cuda_device") or "not available"),
+            "cuda       %s" % (caps.get("cuda_device") or "not available"),
             "mode       %s" % mode,
             "queue      %d waiting, %d running" % (q.get("queued", 0), q.get("running", 0)),
             "latency    %.2f ms avg  (min %.2f / max %.2f, jitter %.2f, lost %d/%d)" % (
@@ -555,9 +553,7 @@ class App(ctk.CTk):
             hs = " (handshake %.0f ms)" % handshake_ms if handshake_ms else ""
             self.log("connected to %s%s, latency %.2f ms" % (info.get("worker"), hs, lat["avg_ms"]), "ok")
             if not caps.get("gpu_encode"):
-                self.log("worker has no working hardware encoder - jobs will run on its CPU", "warn")
-            else:
-                self.log("worker encodes with %s" % caps.get("accelerator"), "ok")
+                self.log("worker has no working NVENC encoder - jobs will run on its CPU", "warn")
 
     def _progress(self, d):
         pct = d.get("percent", 0) or 0
@@ -597,9 +593,9 @@ class App(ctk.CTk):
                     t["overhead_s"] / t["total_s"] * 100 if t["total_s"] else 0),
             ]
             if "gpu_util_avg" in m:
-                lines.append("gpu 3D avg %.0f%% / peak %.0f%%   video encoder avg %s   gpu memory peak %s MB" % (
+                lines.append("gpu util avg %.0f%% / peak %.0f%%   nvenc %s   vram peak %s MB" % (
                     m["gpu_util_avg"], m["gpu_util_peak"],
-                    "%.0f%%" % m["enc_util_avg"] if "enc_util_avg" in m else "n/a",
+                    "%.0f%%" % m["nvenc_util_avg"] if "nvenc_util_avg" in m else "n/a",
                     int(m.get("gpu_mem_mb_peak", 0))))
             self.summary_label.configure(text="\n".join(lines))
             self.last_output_dir = out_dir
