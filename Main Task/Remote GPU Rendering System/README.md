@@ -71,13 +71,13 @@ section.
 
 ```mermaid
 flowchart TB
-    subgraph C["Client laptop  (192.168.1.2)"]
+    subgraph C["Client laptop"]
         GUI["CustomTkinter GUI<br/>file picker, render settings,<br/>server IP, live log"]
         WC["WorkerClient<br/>handshake, upload, resume"]
         GUI -- "events via queue" --- WC
     end
 
-    subgraph W["Worker node  (192.168.1.1)"]
+    subgraph W["Worker node (NVIDIA GPU)"]
         L["TCP listener<br/>one session thread per client"]
         Q["Job queue<br/>N GPU slot threads"]
         E["Execution engine<br/>FFmpeg h264_nvenc / hevc_nvenc<br/>PyTorch CUDA"]
@@ -86,7 +86,7 @@ flowchart TB
         E -.-> M
     end
 
-    WC == "TCP :5050<br/>direct Ethernet / Wi-Fi" ==> L
+    WC == "TCP :5050<br/>Ethernet cable or Wi-Fi" ==> L
     E -- "PROGRESS / LOG / HEARTBEAT" --> L
     L -- "verified output file" --> WC
 ```
@@ -172,24 +172,29 @@ Remote GPU Rendering System/
 
 ## 1. Network setup
 
-Connect the two machines with an Ethernet cable (or put them on one Wi-Fi
-subnet) and give them static addresses:
+The system works over a **direct Ethernet cable or Wi-Fi**; the code is the
+same for both. The worker is the machine with the NVIDIA GPU.
 
-| Machine | IP | Mask |
-|---|---|---|
-| Worker | `192.168.1.1` | `255.255.255.0` |
-| Client | `192.168.1.2` | `255.255.255.0` |
+| Link | Worker IP | Client IP | How |
+|---|---|---|---|
+| Wi-Fi, Windows Mobile Hotspot on the worker | `192.168.137.1` | `192.168.137.2` | worker turns on Mobile hotspot, client joins it |
+| Wi-Fi, phone hotspot | from `ipconfig` | from `ipconfig` | both laptops join the phone |
+| Ethernet cable | `192.168.1.1` | `192.168.1.2` | static IPs on both Ethernet adapters, mask `255.255.255.0` |
 
-Allow TCP port 5050 through the worker's firewall:
+On the worker, allow TCP port 5050 through the firewall (Administrator PowerShell):
 
 ```powershell
 New-NetFirewallRule -DisplayName "Remote Render Worker" -Direction Inbound -Protocol TCP -LocalPort 5050 -Action Allow -Profile Any
 ```
 
-Check with `ping 192.168.1.1` from the client.
+Check from the client with `ping <worker IP>`.
 
-Full guide with Linux commands, the Wi-Fi hotspot option and a troubleshooting
-table: **[docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md)**
+Step-by-step instructions for every option (hotspot, phone, router, cable,
+Linux), static IP on Wi-Fi, and a troubleshooting table:
+**[docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md)**
+
+The examples in the rest of this README use `192.168.1.1`. Replace it with
+your worker's IP, for example `192.168.137.1` on a Windows hotspot.
 
 ---
 
@@ -316,8 +321,10 @@ and check the outcome each time.
 ## Performance benchmark
 
 ```bash
-python -m benchmark.run_benchmark --server 192.168.1.1 --token my-secret-token --repeats 3
+python -m benchmark.run_benchmark --server 192.168.1.1 --token my-secret-token --repeats 3 --network "Wi-Fi (Windows hotspot)"
 ```
+
+`--network` is just a label for the report (e.g. `"Ethernet, 1 Gbit/s"`).
 
 The script runs every resolution/duration combination on the laptop's CPU and
 then through the worker. It times each phase (hash, upload, queue, render,
@@ -347,7 +354,7 @@ Captured on the test setup described in the benchmark report. Files are in
 | Finished job summary | `gui_done.png` |
 | `nvidia-smi` showing NVENC load during a render | `nvidia_smi.png` |
 | Demo recording: full job from file pick to output, including progress streaming | `demo.gif` |
-| Disconnect test: cable pulled mid-render, client reconnects and finishes | `resume_demo.gif` |
+| Disconnect test: Wi-Fi turned off (or cable pulled) mid-render, client reconnects and finishes | `resume_demo.gif` |
 
 ---
 
@@ -391,4 +398,4 @@ The end-to-end tests start a real worker on localhost with
 | Status panel says *CPU fallback* | as above: NVENC failed the startup test encode |
 | CUDA compute job rejected | PyTorch not installed or installed without CUDA (`python -c "import torch; print(torch.cuda.is_available())"`) |
 | `No module named tkinter` (Linux) | `sudo apt install python3-tk` |
-| Upload very slow | you are on Wi-Fi or a 100 Mbit link; check the adapter shows 1.0 Gbps |
+| Upload very slow | expected on Wi-Fi; stay close to the hotspot, or use a cable. The benchmark records this as network overhead |

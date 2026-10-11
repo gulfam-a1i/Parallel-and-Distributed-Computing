@@ -33,6 +33,7 @@ python -m benchmark.run_benchmark --server 192.168.1.1 --token <token> \
 | `--preset p1..p7` | NVENC preset; local x264 uses the closest equivalent |
 | `--local-encoder` | override the local encoder (default `libx264` / `libx265`) |
 | `--skip-local` | only time the remote path |
+| `--network` | label for the link used, written into the report |
 
 Test clips are generated once with FFmpeg and cached in `benchmark/clips/`
 (that folder is git-ignored).
@@ -87,4 +88,4 @@ The report lists any case where it did.
 
 - Close other heavy programs on both machines while the benchmark runs.
 - Plug the laptop into power; on battery most laptops throttle the CPU and the local baseline gets slower than it really is.
-- Run once over Ethernet and once over Wi-Fi with `--results results/wifi` to show how much the link changes the picture.
+- Pass `--network "Wi-Fi (Windows hotspot)"` (or `"Ethernet"`) so the report states which link was measured. If you can test both, save them separately with `--results results/wifi` and `--results results/ethernet` to compare.

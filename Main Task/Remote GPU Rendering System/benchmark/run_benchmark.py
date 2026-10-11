@@ -372,7 +372,8 @@ def write_report(rows, meta, charts, path):
     if has_local:
         L.append("| Encoder | %s | %s |" % (rows[0].get("local_encoder"), rows[0].get("remote_encoder")))
     L.append("")
-    L.append("Network: %s:%d, round-trip latency %.2f ms avg (min %.2f, max %.2f, jitter %.2f ms, %d/%d lost).\n" % (
+    L.append("Network link: **%s**.\n" % meta.get("network", "not specified"))
+    L.append("Worker address %s:%d, round-trip latency %.2f ms avg (min %.2f, max %.2f, jitter %.2f ms, %d/%d lost).\n" % (
         meta["server"], meta["port"], lat["avg_ms"], lat["min_ms"], lat["max_ms"], lat["jitter_ms"],
         lat["lost"], lat["count"]))
     L.append("Job settings: codec `%s`, preset `%s`, bitrate per resolution from `common/ffmpeg.py` "
@@ -450,6 +451,8 @@ def main(argv=None):
     p.add_argument("--local-encoder", default=None, help="default: libx264 / libx265")
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--skip-local", action="store_true", help="only measure the remote path")
+    p.add_argument("--network", default="not specified",
+                   help='link description for the report, e.g. "Wi-Fi (Windows hotspot)" or "Ethernet, 1 Gbit/s"')
     p.add_argument("--results", default=RESULT_DIR)
     args = p.parse_args(argv)
 
@@ -490,7 +493,7 @@ def main(argv=None):
     csv_path = os.path.join(args.results, "benchmark_%s.csv" % stamp)
     json_path = os.path.join(args.results, "benchmark_%s.json" % stamp)
     meta = {"date": dt.datetime.now().strftime("%Y-%m-%d %H:%M"), "server": args.server, "port": args.port,
-            "repeats": args.repeats, "codec": args.codec, "preset": args.preset, "client": client_environment(),
+            "repeats": args.repeats, "network": args.network, "codec": args.codec, "preset": args.preset, "client": client_environment(),
             "worker": worker, "latency": latency, "csv": csv_path, "json": json_path}
     write_csv(rows, csv_path)
     with open(json_path, "w") as f:
