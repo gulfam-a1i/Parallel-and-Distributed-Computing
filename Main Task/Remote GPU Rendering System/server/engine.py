@@ -3,13 +3,18 @@ The part of the worker that actually does the work.
 
 Two kinds of job are supported:
 
-  transcode   - FFmpeg with NVENC (h264_nvenc / hevc_nvenc), CUDA decode
+  transcode   - FFmpeg on a hardware video encoder
   cuda_matmul - a dense matrix-multiply benchmark on the GPU via PyTorch
 
-If the worker is started with --allow-cpu-fallback and no usable GPU is
-found, the same jobs run on the CPU (libx264/libx265, NumPy). That is only
-meant for testing the pipeline on a machine without an NVIDIA card; the
-WELCOME message tells the client which mode it is in.
+Encoder selection (first one that passes a test encode wins):
+
+  1. NVIDIA NVENC      h264_nvenc / hevc_nvenc, CUDA decode
+  2. Intel Quick Sync  h264_qsv   / hevc_qsv
+  3. AMD AMF           h264_amf   / hevc_amf
+  4. CPU               libx264 / libx265, only with --allow-cpu-fallback
+
+`--encoder` forces one family, e.g. to compare Quick Sync against the CPU
+on the same machine. The WELCOME message tells the client what is in use.
 """
 
 import logging
@@ -24,35 +29,51 @@ MATMUL_DTYPES = ("float32", "float16")
 
 
 class Engine:
-    def __init__(self, allow_cpu_fallback=False, hw_decode=True):
+    def __init__(self, allow_cpu_fallback=False, hw_decode=True, prefer="auto"):
         self.ffmpeg = ff.find_binary("ffmpeg")
         self.ffprobe = ff.find_binary("ffprobe")
         self.hw_decode = hw_decode
-        self.allow_cpu_fallback = allow_cpu_fallback
+        self.allow_cpu_fallback = allow_cpu_fallback or prefer == "cpu"
 
         listed = ff.available_encoders(self.ffmpeg)
+        families = ff.HW_ORDER if prefer == "auto" else ((prefer,) if prefer in ff.HW_FAMILIES else ())
         self.encoders = {}                         # codec label -> encoder actually used
-        for codec, (gpu_enc, cpu_enc) in ff.CODECS.items():
-            if gpu_enc in listed and ff.nvenc_works(gpu_enc, self.ffmpeg):
-                self.encoders[codec] = gpu_enc
-            elif allow_cpu_fallback and cpu_enc in listed:
+        for codec, (_, cpu_enc) in ff.CODECS.items():
+            for fam in families:
+                enc = ff.HW_FAMILIES[fam][codec]
+                if enc in listed and ff.hw_encoder_works(enc, self.ffmpeg):
+                    self.encoders[codec] = enc
+                    break
+                if enc in listed:
+                    log.info("%s is in this FFmpeg build but failed the test encode (driver/hardware)", enc)
+            if codec not in self.encoders and self.allow_cpu_fallback and cpu_enc in listed:
                 self.encoders[codec] = cpu_enc
-        self.gpu_encode = any(e.endswith("_nvenc") for e in self.encoders.values())
+
+        fams = {ff.encoder_family(e) for e in self.encoders.values()}
+        hw = [f for f in ff.HW_ORDER if f in fams]
+        self.family = hw[0] if hw else "cpu"
+        self.accelerator = ff.HW_FAMILIES[self.family]["name"] if hw else "CPU (software)"
+        self.gpu_encode = bool(hw)
         if not self.gpu_encode:
             self.hw_decode = False
 
         self.torch = None
+        self.torch_backend = None
         self.cuda_device = None
         try:
             import torch
             if torch.cuda.is_available():
-                self.torch = torch
+                self.torch, self.torch_backend = torch, "cuda"
                 self.cuda_device = torch.cuda.get_device_name(0)
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():   # Intel GPUs (PyTorch 2.5+)
+                self.torch, self.torch_backend = torch, "xpu"
+                self.cuda_device = "Intel XPU: %s" % torch.xpu.get_device_name(0)
         except Exception:                          # torch missing or broken install
             pass
 
+        log.info("video accelerator: %s", self.accelerator)
         log.info("encoders: %s", self.encoders or "none")
-        log.info("CUDA compute: %s", self.cuda_device or ("CPU fallback" if allow_cpu_fallback else "unavailable"))
+        log.info("tensor compute: %s", self.cuda_device or ("CPU fallback" if self.allow_cpu_fallback else "unavailable"))
 
     # ---------------------------------------------------------------
     def capabilities(self):
@@ -65,6 +86,8 @@ class Engine:
             "job_kinds": kinds,
             "encoders": self.encoders,
             "gpu_encode": self.gpu_encode,
+            "accelerator": self.accelerator,
+            "family": self.family,
             "cuda_device": self.cuda_device,
             "resolutions": list(ff.RESOLUTIONS),
             "presets": list(ff.PRESETS),
@@ -111,14 +134,14 @@ class Engine:
         if self.torch:
             torch = self.torch
             dtype = getattr(torch, cfg["dtype"])
-            dev = torch.device("cuda")
+            dev = torch.device(self.torch_backend)
+            sync = torch.cuda.synchronize if self.torch_backend == "cuda" else torch.xpu.synchronize
             a = torch.randn(n, n, device=dev, dtype=dtype)
             b = torch.randn(n, n, device=dev, dtype=dtype)
-            torch.matmul(a, b)                     # warm-up (cuBLAS init)
-            torch.cuda.synchronize()
-            backend = "CUDA (%s)" % self.cuda_device
+            torch.matmul(a, b)                     # warm-up (cuBLAS / oneDNN init)
+            sync()
+            backend = ("CUDA (%s)" % self.cuda_device) if self.torch_backend == "cuda" else self.cuda_device
             step = lambda: torch.matmul(a, b)
-            sync = torch.cuda.synchronize
         else:
             import numpy as np
             dtype = np.float32 if cfg["dtype"] == "float32" else np.float16

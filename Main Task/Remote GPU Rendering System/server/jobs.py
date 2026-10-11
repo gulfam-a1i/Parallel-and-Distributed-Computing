@@ -222,7 +222,7 @@ class JobManager:
         sampler = MetricsSampler().start()
         try:
             if job.kind == "transcode":
-                tag = "nvenc" if self.engine.gpu_encode else "cpu"
+                tag = self.engine.family                  # nvenc / qsv / amf / cpu
                 job.output_path = os.path.join(job.dir, output_name(job.input_name, job.config, tag))
                 job.result = self.engine.transcode(job.config, job.input_path, job.output_path,
                                                    on_progress, on_log, job.cancel_event)

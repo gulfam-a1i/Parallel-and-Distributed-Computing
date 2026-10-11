@@ -249,7 +249,8 @@ class WorkerServer:
         self.port = args.port
         self.max_upload = args.max_upload_mb * 2 ** 20
         self.max_clients = args.max_clients
-        self.engine = Engine(allow_cpu_fallback=args.allow_cpu_fallback, hw_decode=not args.no_hw_decode)
+        self.engine = Engine(allow_cpu_fallback=args.allow_cpu_fallback, hw_decode=not args.no_hw_decode,
+                             prefer=args.encoder)
         self.jobs = JobManager(self.engine, os.path.join(args.workdir, "jobs"), slots=args.slots,
                                max_queue=args.max_queue, retention=args.retention)
         self.gpu = gpu_info()
@@ -285,10 +286,13 @@ class WorkerServer:
         srv.settimeout(1.0)                        # wake up regularly to check for shutdown
         log.info("worker '%s' listening on %s:%d", self.name, self.host, self.port)
         if self.gpu:
-            log.info("GPU: %s (driver %s, %d MB)", self.gpu["name"], self.gpu["driver"], self.gpu["memory_mb"])
+            log.info("GPU: %s (driver %s)", self.gpu["name"], self.gpu["driver"])
+        if self.engine.gpu_encode:
+            log.info("hardware encoding with %s", self.engine.accelerator)
         else:
-            log.warning("no NVIDIA GPU detected%s",
-                        " - running in CPU fallback mode" if self.engine.allow_cpu_fallback else "")
+            log.warning("no working hardware encoder found%s",
+                        " - running in CPU fallback mode" if self.engine.allow_cpu_fallback else
+                        " - start with --allow-cpu-fallback to use the CPU")
         try:
             while not self.stopping.is_set():
                 try:
@@ -345,8 +349,10 @@ def parse_args(argv=None):
     p.add_argument("--max-clients", type=int, default=32)
     p.add_argument("--max-upload-mb", type=int, default=4096)
     p.add_argument("--retention", type=int, default=1800, help="seconds to keep finished outputs")
+    p.add_argument("--encoder", default="auto", choices=["auto", "nvenc", "qsv", "amf", "cpu"],
+                   help="hardware encoder family: auto tries NVENC, then Intel Quick Sync, then AMD AMF")
     p.add_argument("--allow-cpu-fallback", action="store_true",
-                   help="use libx264/NumPy when no NVIDIA GPU is available (testing only)")
+                   help="use libx264/NumPy when no hardware encoder is available (testing only)")
     p.add_argument("--no-hw-decode", action="store_true", help="decode on the CPU, encode on the GPU")
     p.add_argument("--log-file", help="also write logs here (default: <workdir>/worker.log)")
     p.add_argument("-v", "--verbose", action="store_true")

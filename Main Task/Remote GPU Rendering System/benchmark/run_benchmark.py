@@ -134,7 +134,7 @@ def run_case(args, clip, res, seconds, out_dir):
         "output_mb": round(remote_runs[0]["output_bytes"] / 2 ** 20, 2),
     })
     m = remote_runs[-1]["result"].get("metrics", {})
-    for k in ("gpu_util_avg", "gpu_util_peak", "nvenc_util_avg", "gpu_mem_mb_peak", "gpu_power_w_avg",
+    for k in ("gpu_util_avg", "gpu_util_peak", "enc_util_avg", "enc_util_peak", "gpu_mem_mb_peak", "gpu_power_w_avg",
               "cpu_util_avg"):
         if k in m:
             row["worker_" + k] = m[k]
@@ -213,7 +213,7 @@ def make_charts(rows, out_dir):
         ax.spines[s].set_visible(False)
     from matplotlib.patches import Patch
     handles = [Patch(color=aqua, label="upload"), Patch(color=muted, label="queue"),
-               Patch(color=blue, label="GPU render"), Patch(color=yellow, label="download")]
+               Patch(color=blue, label="worker render (HW encoder)"), Patch(color=yellow, label="download")]
     if has_local:
         handles.append(Patch(color=orange, label="local CPU render"))
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
@@ -320,9 +320,9 @@ def analysis(rows, has_local):
         gpu = [r["worker_gpu_util_avg"] for r in rows if r.get("worker_gpu_util_avg") is not None]
         if gpu:
             parts.append("the worker GPU averaged %.0f%%" % statistics.mean(gpu))
-        nv = [r["worker_nvenc_util_avg"] for r in rows if r.get("worker_nvenc_util_avg") is not None]
+        nv = [r["worker_enc_util_avg"] for r in rows if r.get("worker_enc_util_avg") is not None]
         if nv:
-            parts.append("its NVENC engine %.0f%%" % statistics.mean(nv))
+            parts.append("its hardware video encoder %.0f%%" % statistics.mean(nv))
         wcpu = [r["worker_cpu_util_avg"] for r in rows if r.get("worker_cpu_util_avg") is not None]
         if wcpu:
             parts.append("the worker CPU %.0f%%" % statistics.mean(wcpu))
@@ -368,7 +368,8 @@ def write_report(rows, meta, charts, path):
     L.append("| CPU | %s (%s threads) | %s (%s threads) |" % (
         c["cpu"], c.get("cpu_cores", "?"), w.get("system", {}).get("cpu", "?"), w.get("system", {}).get("cpu_cores", "?")))
     L.append("| RAM | %s GB | %s GB |" % (c.get("ram_gb", "?"), w.get("system", {}).get("ram_gb", "?")))
-    L.append("| GPU | - | %s |" % ("%s, driver %s, %d MB" % (gpu["name"], gpu["driver"], gpu["memory_mb"]) if gpu else "none"))
+    L.append("| GPU | - | %s |" % ("%s, driver %s" % (gpu["name"], gpu["driver"]) if gpu else "none"))
+    L.append("| Video accelerator | CPU (software) | %s |" % w.get("capabilities", {}).get("accelerator", "?"))
     if has_local:
         L.append("| Encoder | %s | %s |" % (rows[0].get("local_encoder"), rows[0].get("remote_encoder")))
     L.append("")
@@ -412,12 +413,14 @@ def write_report(rows, meta, charts, path):
     L.append("")
 
     util_keys = [k for k in ("local_cpu_avg", "worker_cpu_util_avg", "worker_gpu_util_avg", "worker_gpu_util_peak",
-                             "worker_nvenc_util_avg", "worker_gpu_mem_mb_peak", "worker_gpu_power_w_avg")
+                             "worker_enc_util_avg", "worker_enc_util_peak", "worker_gpu_mem_mb_peak",
+                             "worker_gpu_power_w_avg")
                  if any(k in r for r in rows)]
     if util_keys:
         names = {"local_cpu_avg": "Client CPU % (local run)", "worker_cpu_util_avg": "Worker CPU %",
                  "worker_gpu_util_avg": "GPU % avg", "worker_gpu_util_peak": "GPU % peak",
-                 "worker_nvenc_util_avg": "NVENC % avg", "worker_gpu_mem_mb_peak": "VRAM MB peak",
+                 "worker_enc_util_avg": "HW encoder % avg", "worker_enc_util_peak": "HW encoder % peak",
+                 "worker_gpu_mem_mb_peak": "GPU mem MB peak",
                  "worker_gpu_power_w_avg": "GPU W avg"}
         L.append("### 4.1 Resource utilisation\n")
         L.append("| Case | " + " | ".join(names[k] for k in util_keys) + " |")
@@ -476,11 +479,11 @@ def main(argv=None):
         print("worker not available:", e)
         return 1
     gpu = worker.get("gpu") or {}
-    print("worker '%s', GPU %s, encoder %s, latency %.2f ms" % (
+    print("worker '%s', GPU %s, encoder %s (%s), latency %.2f ms" % (
         worker["worker"], gpu.get("name", "none"), worker["capabilities"]["encoders"].get(args.codec),
-        latency["avg_ms"]))
+        worker["capabilities"].get("accelerator", "?"), latency["avg_ms"]))
     if not worker["capabilities"].get("gpu_encode"):
-        print("WARNING: worker is in CPU fallback mode - results will not show GPU performance")
+        print("WARNING: worker is in CPU fallback mode - results will not show hardware acceleration")
 
     rows = []
     for res in resolutions:
