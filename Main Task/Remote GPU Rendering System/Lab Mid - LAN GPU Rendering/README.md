@@ -14,6 +14,16 @@ video encoder (Intel Quick Sync), and the finished file is sent back to the
 client. Both transfers are SHA-256 verified. No USB drive, router or internet
 connection is involved.
 
+## Demo video
+
+Click the preview to watch the full demo on Google Drive.
+
+<a href="https://drive.google.com/file/d/1bxh7_HC0YvGm0WkQsyjYMnPhuws50Hjr/view?usp=sharing">
+  <img src="demo_video_preview.jpg" alt="Demo video: CapCut clip rendered on the GPU laptop over LAN (click to play)" width="300">
+</a>
+
+▶️ **[Watch the demo video on Google Drive](https://drive.google.com/file/d/1bxh7_HC0YvGm0WkQsyjYMnPhuws50Hjr/view?usp=sharing)**
+
 ---
 
 ## 1. Setup

@@ -14,6 +14,7 @@ SHA-256 verified.
 
 | | |
 |---|---|
+| **Demo video** | [▶️ Watch on Google Drive](https://drive.google.com/file/d/1bxh7_HC0YvGm0WkQsyjYMnPhuws50Hjr/view?usp=sharing) |
 | **Lab report** (client + server screenshots) | [Lab Mid - LAN GPU Rendering](<Main Task/Remote GPU Rendering System/Lab Mid - LAN GPU Rendering/README.md>) |
 | Test procedure for both laptops | [LAN_TESTING_GUIDE.md](<Main Task/Remote GPU Rendering System/LAN_TESTING_GUIDE.md>) |
 | Client scripts | [lan/](<Main Task/Remote GPU Rendering System/lan/>) |
