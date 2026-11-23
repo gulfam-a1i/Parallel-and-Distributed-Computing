@@ -6,7 +6,7 @@
 | **Registration No.** | FA23-BSE-030 |
 | **Course** | CSC-334 Parallel and Distributed Computing |
 | **Date of run** | 24 Nov 2026, 00:19 PKT |
-| **Project** | [Remote GPU Rendering System](../README.md) |
+| **Code** | [client/](../client/) · [server/](../server/) · [common/](../common/) |
 
 A video edited and exported in CapCut on the client laptop is sent over a
 direct Ethernet cable to a second laptop, encoded there on the GPU's hardware
