@@ -21,6 +21,11 @@ Everything runs over a custom TCP protocol with an authenticated handshake,
 latency check, SHA-256 verified transfers, heartbeats, and automatic
 reconnect-and-resume if the connection drops mid-job.
 
+**Lab Mid:** a CapCut clip rendered on a second laptop's GPU over a direct LAN
+cable, with client- and server-side screenshots, is written up in
+[Lab Mid - LAN GPU Rendering](Lab%20Mid%20-%20LAN%20GPU%20Rendering/README.md).
+The two-laptop setup and test procedure are in [LAN_TESTING_GUIDE.md](LAN_TESTING_GUIDE.md).
+
 ---
 
 ## Contents
