@@ -6,13 +6,23 @@
 | **Registration No.** | FA23-BSE-030 |
 | **Course** | CSC-334 Parallel and Distributed Computing |
 | **Date of run** | 24 Nov 2026, 00:19 PKT |
-| **Project** | [Remote GPU Rendering System](../README.md) |
+| **Code** | [client/](../client/) · [server/](../server/) · [common/](../common/) |
 
 A video edited and exported in CapCut on the client laptop is sent over a
 direct Ethernet cable to a second laptop, encoded there on the GPU's hardware
 video encoder (Intel Quick Sync), and the finished file is sent back to the
 client. Both transfers are SHA-256 verified. No USB drive, router or internet
 connection is involved.
+
+## Demo video
+
+Click the preview to watch the full demo on Google Drive.
+
+<a href="https://drive.google.com/file/d/1bxh7_HC0YvGm0WkQsyjYMnPhuws50Hjr/view?usp=sharing">
+  <img src="demo_video_preview.jpg" alt="Demo video: CapCut clip rendered on the GPU laptop over LAN (click to play)" width="300">
+</a>
+
+▶️ **[Watch the demo video on Google Drive](https://drive.google.com/file/d/1bxh7_HC0YvGm0WkQsyjYMnPhuws50Hjr/view?usp=sharing)**
 
 ---
 
