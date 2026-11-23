@@ -6,7 +6,7 @@
 | **Registration No.** | FA23-BSE-030 |
 | **Course** | CSC-334 Parallel and Distributed Computing |
 | **Date of run** | 24 Nov 2026, 00:19 PKT |
-| **Code** | [client/](../client/) · [server/](../server/) · [common/](../common/) |
+| **Code** | [client/](client/) · [server/](server/) · [common/](common/) |
 
 A video edited and exported in CapCut on the client laptop is sent over a
 direct Ethernet cable to a second laptop, encoded there on the GPU's hardware
@@ -124,11 +124,11 @@ More detail for each side: [client-side/](client-side/README.md) · [server-side
 
 | File | Laptop | Purpose |
 |---|---|---|
-| [`GPU_Worker_Laptop.zip`](../GPU_Worker_Laptop.zip) | GPU | Worker package: `START_GPU_WORKER.bat`, `server/`, `common/`, `lan_setup.ps1` |
-| [`lan/1_SETUP_LAN_THIS_LAPTOP.bat`](../lan/1_SETUP_LAN_THIS_LAPTOP.bat) | client | Static IP 192.168.1.2 on the cable (once) |
-| [`lan/2_CHECK_CONNECTION.bat`](../lan/2_CHECK_CONNECTION.bat) | client | Ping + worker handshake |
-| [`lan/3_RENDER_CAPCUT_CLIP.bat`](../lan/3_RENDER_CAPCUT_CLIP.bat) | client | Find latest CapCut export, render on GPU laptop, save result |
-| [`lan/config.bat`](../lan/config.bat) | client | Worker IP, port, token, bitrate |
-| [`LAN_TESTING_GUIDE.md`](../LAN_TESTING_GUIDE.md) | both | Step-by-step test procedure and troubleshooting |
+| [`GPU_Worker_Laptop.zip`](GPU_Worker_Laptop.zip) | GPU | Worker package: `START_GPU_WORKER.bat`, `server/`, `common/`, `lan_setup.ps1` |
+| [`lan/1_SETUP_LAN_THIS_LAPTOP.bat`](lan/1_SETUP_LAN_THIS_LAPTOP.bat) | client | Static IP 192.168.1.2 on the cable (once) |
+| [`lan/2_CHECK_CONNECTION.bat`](lan/2_CHECK_CONNECTION.bat) | client | Ping + worker handshake |
+| [`lan/3_RENDER_CAPCUT_CLIP.bat`](lan/3_RENDER_CAPCUT_CLIP.bat) | client | Find latest CapCut export, render on GPU laptop, save result |
+| [`lan/config.bat`](lan/config.bat) | client | Worker IP, port, token, bitrate |
+| [`LAN_TESTING_GUIDE.md`](LAN_TESTING_GUIDE.md) | both | Step-by-step test procedure and troubleshooting |
 
-To repeat the test, follow [LAN_TESTING_GUIDE.md](../LAN_TESTING_GUIDE.md).
+To repeat the test, follow [LAN_TESTING_GUIDE.md](LAN_TESTING_GUIDE.md).

@@ -1,0 +1,4 @@
+psutil>=5.9
+numpy>=1.24
+# Optional, for the CUDA compute job. Install the CUDA build that matches your driver, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121

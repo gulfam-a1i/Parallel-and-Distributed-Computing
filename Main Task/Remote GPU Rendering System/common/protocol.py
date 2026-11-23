@@ -14,6 +14,7 @@ byte count and a SHA-256 digest, and then writes the raw bytes straight onto
 the socket. The receiver reads exactly that many bytes, hashes them on the
 fly and rejects the transfer if either the length or the digest is wrong.
 
+See docs/PROTOCOL.md for the full message sequence.
 """
 
 import hashlib
